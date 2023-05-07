@@ -199,6 +199,28 @@ get microblockDimensions() {
 }
 
 }
+// #link AbstractFormat
+
+class ASTCFormat extends AbstractFormat {
+
+constructor(microblockDimensions) {
+    super();
+    this._microblockDimensions = microblockDimensions;
+}
+
+get family() {
+    return 'astc';
+}
+
+get microblockSize() {
+    16;
+}
+
+get microblockDimensions() {
+    return this._microblockDimensions;
+}
+
+}
 // #link /utils/FormatMismatchError
 // #link /utils/vec
 // #link /formats
@@ -350,6 +372,7 @@ class FormatFactory {
 static create(options) {
     switch (options?.family) {
         case 'mono': return FormatFactory.createMono(options);
+        case 'astc': return FormatFactory.createASTC(options);
         default: throw new Error(`Unrecognized format family: ${options?.family}`);
     }
 }
@@ -368,6 +391,12 @@ static createMono(options) {
     }
 
     return new MonoFormat(count, size, type);
+}
+
+static createASTC(options) {
+    const { microblockDimensions } = options;
+
+    return new ASTCFormat(microblockDimensions);
 }
 
 }

@@ -1,0 +1,114 @@
+#!/usr/bin/env node
+
+const fs = require('fs');
+const path = require('path');
+
+const SIGNATURE = Buffer.from([0xab, 0x53, 0x41, 0x46, 0x20, 0x31, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function processFile(file) {
+    const stat = fs.statSync(file);
+    if (stat.isFile()) {
+        return [{ path: file, size: stat.size }];
+    } else if (stat.isDirectory()) {
+        return fs.readdirSync(file)
+            .map(subfile => path.join(file, subfile))
+            .flatMap(subfile => processFile(subfile));
+    } else {
+        console.log(`Warning: skipping ${file}, because it is neither a regular file nor a directory`);
+    }
+}
+
+function readManifest(fd) {
+    const signature = Buffer.alloc(12);
+    fs.readSync(fd, signature);
+    if (!signature.equals(SIGNATURE)) {
+        throw new Error('Incorrect file signature');
+    }
+
+    const manifestSize = Buffer.alloc(4);
+    fs.readSync(fd, manifestSize);
+    const manifest = Buffer.alloc(manifestSize.readUInt32LE());
+    fs.readSync(fd, manifest);
+    return JSON.parse(manifest.toString());
+}
+
+function pack(output, files) {
+    const manifest = files.flatMap(file => processFile(path.basename(path.resolve(file))));
+    const manifestEncoded = Buffer.from(JSON.stringify(manifest));
+    const manifestSize = Buffer.alloc(4);
+    manifestSize.writeUInt32LE(manifestEncoded.length);
+    fs.writeFileSync(output, SIGNATURE);
+    fs.appendFileSync(output, manifestSize);
+    fs.appendFileSync(output, manifestEncoded);
+    for (const file of manifest) {
+        fs.appendFileSync(output, fs.readFileSync(file.path));
+    }
+}
+
+function unpack(files) {
+    for (const file of files) {
+        const fd = fs.openSync(file);
+        try {
+            const manifest = readManifest(fd);
+            console.log(`${file}:`);
+            for (const file of manifest) {
+                console.log(file.path);
+                fs.mkdirSync(path.dirname(file.path), { recursive: true });
+                const fileData = Buffer.alloc(file.size);
+                fs.readSync(fd, fileData);
+                fs.writeFileSync(file.path, fileData);
+            }
+        } catch (e) {
+            console.log(`Error: ${file} is corrupted or not a SAF archive`);
+        }
+        fs.closeSync(fd);
+    }
+}
+
+function list(files) {
+    for (const file of files) {
+        const fd = fs.openSync(file);
+        try {
+            const manifest = readManifest(fd);
+            console.log(`${file}:`);
+            for (const file of manifest) {
+                console.log(file.path);
+            }
+        } catch (e) {
+            console.log(`Error: ${file} is corrupted or not a SAF archive`);
+        }
+        fs.closeSync(fd);
+    }
+}
+
+function usage() {
+    console.log('Usage:');
+    console.log('    saf pack <outfile> [<infile>...]');
+    console.log('    saf unpack [<infile>...]');
+    console.log('    saf list [<infile>...]');
+}
+
+if (process.argv.length <= 2) {
+    usage();
+    process.exit(1);
+}
+
+const command = process.argv[2];
+const files = process.argv.slice(3);
+
+if (command === 'pack') {
+    if (files.length === 0) {
+        usage();
+        process.exit(1);
+    }
+
+    const output = files[0];
+    const infiles = files.slice(1);
+    pack(output, infiles);
+} else if (command === 'unpack') {
+    unpack(files);
+} else if (command === 'list') {
+    list(files);
+} else {
+    console.log(`Error: ${command} is not a valid command`);
+}
